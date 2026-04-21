@@ -1,9 +1,7 @@
 /*
  * Original author: Khem Raj <raj.khem@gmail.com>
  *
- * Mimick GLIBC's res_ninit() and res_nclose() for musl libc
- * Note: res_init() is actually deprecated according to
- * http://docs.oracle.com/cd/E36784_01/html/E36875/res-nclose-3resolv.html
+ * Mimick GLIBC's res_ninit() and res_nclose(), and res_init() for musl libc
  */
 
 #include <resolv.h> /* res_state */
@@ -41,6 +39,12 @@ int __res_nclose(res_state statp)
 	return 0;
 }
 weak_alias(__res_nclose, res_nclose);
+
+int __res_init(void)
+{
+	return res_init();
+}
+weak_alias(__res_init, res_init);
 
 int __res_search(const char *dname, int class, int type, unsigned char *answer,
                  int anslen)
