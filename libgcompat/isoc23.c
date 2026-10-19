@@ -182,3 +182,44 @@ long __isoc23_wcstol(const wchar_t *text, wchar_t **end, int base)
     if (end) *end = parsed;
     return value;
 }
+
+/* AArch64 uses identical long/long-long ranges, but keep the unsigned parser
+ * explicit: signed conversion would incorrectly saturate above LONG_MAX. */
+static unsigned long long wide_unsigned(const wchar_t *text, wchar_t **end, int base)
+{
+    const wchar_t *p = text;
+    while (iswspace(*p)) ++p;
+    int negative = *p == L'-';
+    if (*p == L'+' || *p == L'-') ++p;
+    if ((base == 0 || base == 2) && p[0] == L'0' &&
+        (p[1] == L'b' || p[1] == L'B') && (p[2] == L'0' || p[2] == L'1')) {
+        p += 2;
+        unsigned long long value = 0;
+        int overflow = 0;
+        while (*p == L'0' || *p == L'1') {
+            unsigned digit = *p++ - L'0';
+            if (value > (ULLONG_MAX - digit) / 2) overflow = 1;
+            if (!overflow) value = value * 2 + digit;
+        }
+        if (end) *end = (wchar_t *)p;
+        if (overflow) { errno = ERANGE; return ULLONG_MAX; }
+        return negative ? 0ULL - value : value;
+    }
+    if (base != 0 && (base < 2 || base > 36)) { errno = EINVAL; return 0; }
+    int saved = errno;
+    wchar_t *parsed;
+    unsigned long long value = wcstoull(text, &parsed, base);
+    if (parsed == text && errno == EINVAL) errno = saved;
+    if (end) *end = parsed;
+    return value;
+}
+_Static_assert(ULONG_MAX == ULLONG_MAX && LONG_MAX == LLONG_MAX,
+               "GearOS wide conversion bridge requires LP64");
+unsigned long __isoc23_wcstoul(const wchar_t *text, wchar_t **end, int base)
+{ return (unsigned long)wide_unsigned(text, end, base); }
+unsigned long long __isoc23_wcstoull(const wchar_t *text, wchar_t **end, int base)
+{ return wide_unsigned(text, end, base); }
+long long __isoc23_wcstoll(const wchar_t *text, wchar_t **end, int base)
+{ return (long long)__isoc23_wcstol(text, end, base); }
+int __openat_2(int fd, const char *path, int flags)
+{ return __openat64_2(fd, path, flags); }
