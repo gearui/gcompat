@@ -72,3 +72,113 @@ SIGNED_C23(long, __isoc23_strtol, strtol, LONG_MAX, LONG_MIN)
 SIGNED_C23(long long, __isoc23_strtoll, strtoll, LLONG_MAX, LLONG_MIN)
 UNSIGNED_C23(unsigned long, __isoc23_strtoul, strtoul, ULONG_MAX)
 UNSIGNED_C23(unsigned long long, __isoc23_strtoull, strtoull, ULLONG_MAX)
+
+/* Locale objects are produced by this process's musl locale API. */
+#include <locale.h>
+#define LOCALE_C23(type, name, plain) \
+ type name(const char *text, char **end, int base, locale_t locale) { \
+    locale_t previous = uselocale(locale); \
+    if (!previous) return 0; \
+    type result = plain(text, end, base); \
+    int error = errno; \
+    uselocale(previous); errno = error; return result; \
+ }
+LOCALE_C23(long, __isoc23_strtol_l, __isoc23_strtol)
+LOCALE_C23(unsigned long, __isoc23_strtoul_l, __isoc23_strtoul)
+LOCALE_C23(long long, __isoc23_strtoll_l, __isoc23_strtoll)
+LOCALE_C23(unsigned long long, __isoc23_strtoull_l, __isoc23_strtoull)
+
+/* C23 size/alignment arguments are caller guarantees, not allocator metadata.
+ * musl free already accepts every allocation from the matching allocator. */
+void free_sized(void *pointer, size_t size) { (void)size; free(pointer); }
+void free_aligned_sized(void *pointer, size_t alignment, size_t size)
+{ (void)alignment; (void)size; free(pointer); }
+
+#include <unistd.h>
+#include <sys/syscall.h>
+int close_range(unsigned int first, unsigned int last, int flags)
+{
+#ifdef SYS_close_range
+    return (int)syscall(SYS_close_range, first, last, flags);
+#else
+    errno = ENOSYS; return -1;
+#endif
+}
+
+#include <stdint.h>
+/* Use kernel entropy; never fall back to a predictable PRNG. */
+void arc4random_buf(void *buffer, size_t length)
+{
+    unsigned char *p = buffer;
+    while (length) {
+        size_t chunk = length > 256 ? 256 : length;
+        if (getentropy(p, chunk) != 0) abort();
+        p += chunk; length -= chunk;
+    }
+}
+uint32_t arc4random(void)
+{ uint32_t value; arc4random_buf(&value, sizeof value); return value; }
+uint32_t arc4random_uniform(uint32_t upper)
+{
+    if (upper < 2) return 0;
+    uint32_t threshold = -upper % upper, value;
+    do { value = arc4random(); } while (value < threshold);
+    return value % upper;
+}
+
+ssize_t __readlinkat_chk(int fd, const char *path, char *buffer,
+                       size_t length, size_t capacity)
+{
+    if (length > capacity) abort();
+    return readlinkat(fd, path, buffer, length);
+}
+
+#include <fcntl.h>
+int __openat64_2(int fd, const char *path, int flags)
+{
+    if ((flags & O_CREAT) || (flags & O_TMPFILE) == O_TMPFILE) abort();
+    return openat(fd, path, flags);
+}
+#include <wchar.h>
+#include <wctype.h>
+#include <string.h>
+size_t __mbsrtowcs_chk(wchar_t *dest, const char **src, size_t length,
+                      mbstate_t *state, size_t capacity)
+{
+    if (dest && length > capacity) abort();
+    return mbsrtowcs(dest, src, length, state);
+}
+size_t __strlcpy_chk(char *dest, const char *src, size_t length, size_t capacity)
+{
+    if (length > capacity) abort();
+    return strlcpy(dest, src, length);
+}
+long __isoc23_wcstol(const wchar_t *text, wchar_t **end, int base)
+{
+    const wchar_t *p = text;
+    while (iswspace(*p)) ++p;
+    int negative = *p == L'-';
+    if (*p == L'+' || *p == L'-') ++p;
+    if ((base == 0 || base == 2) && p[0] == L'0' &&
+        (p[1] == L'b' || p[1] == L'B') && (p[2] == L'0' || p[2] == L'1')) {
+        p += 2;
+        unsigned long value = 0, limit = (unsigned long)LONG_MAX + negative;
+        int overflow = 0;
+        while (*p == L'0' || *p == L'1') {
+            unsigned int digit = *p++ - L'0';
+            if (value > (limit - digit) / 2) overflow = 1;
+            if (!overflow) value = value * 2 + digit;
+        }
+        if (end) *end = (wchar_t *)p;
+        if (overflow) { errno = ERANGE; return negative ? LONG_MIN : LONG_MAX; }
+        if (negative && value == (unsigned long)LONG_MAX + 1) return LONG_MIN;
+        return negative ? -(long)value : (long)value;
+    }
+    if (base != 0 && (base < 2 || base > 36)) { errno = EINVAL; return 0; }
+    int saved = errno;
+    wchar_t *parsed;
+    long value = wcstol(text, &parsed, base);
+    if (parsed == text && errno == EINVAL) errno = saved;
+    if (end) *end = parsed;
+    return value;
+}

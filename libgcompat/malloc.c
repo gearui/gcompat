@@ -106,3 +106,16 @@ void muntrace(void)
 	/* Not implemented on purpose. */
 	return;
 }
+
+/* musl does not expose glibc arena statistics. As with upstream mallinfo,
+ * zero fields mean unavailable compatibility counters, not measured zero use.
+ * Callers requiring allocator telemetry must use a native monitoring API. */
+struct mallinfo2 {
+ size_t arena, ordblks, smblks, hblks, hblkhd;
+ size_t usmblks, fsmblks, uordblks, fordblks, keepcost;
+};
+struct mallinfo2 mallinfo2(void)
+{
+ struct mallinfo2 info = {0};
+ return info;
+}
