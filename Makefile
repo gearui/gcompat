@@ -12,6 +12,7 @@ LIBGCOMPAT_SRC = \
 	libgcompat/gnulib.c		\
 	libgcompat/grp.c		\
 	libgcompat/internal.c		\
+	libgcompat/isoc23.c		\
 	libgcompat/locale.c		\
 	libgcompat/malloc.c		\
 	libgcompat/math.c		\
