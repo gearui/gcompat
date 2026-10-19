@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 
 #include <assert.h> /* assert */
 #include <fcntl.h>  /* O_CREAT */
@@ -257,8 +258,25 @@ int fcntl64(int fd, int cmd, ...) {
 	int ret;
 	va_list va;
 
+	/* fcntl is variadic, not a vfcntl API: never pass va_list itself.
+	 * AArch64 has a single 64-bit flock ABI. Preserve argument types and
+	 * avoid reading an absent argument for query commands. */
 	va_start(va, cmd);
-	ret = fcntl(fd, cmd, va);
+	switch (cmd) {
+	case F_GETFD: case F_GETFL: case F_GETOWN: case F_GETSIG:
+	case F_GETLEASE: case F_GETPIPE_SZ: case F_GET_SEALS:
+		ret = fcntl(fd, cmd); break;
+	case F_DUPFD: case F_DUPFD_CLOEXEC: case F_SETFD: case F_SETFL:
+	case F_SETOWN: case F_SETSIG: case F_SETLEASE: case F_NOTIFY:
+	case F_SETPIPE_SZ: case F_ADD_SEALS:
+		ret = fcntl(fd, cmd, va_arg(va, int)); break;
+	case F_GETLK: case F_SETLK: case F_SETLKW:
+	case F_OFD_GETLK: case F_OFD_SETLK: case F_OFD_SETLKW:
+	case F_GETOWN_EX: case F_SETOWN_EX:
+		ret = fcntl(fd, cmd, va_arg(va, void *)); break;
+	default:
+		errno = EINVAL; ret = -1; break;
+	}
 	va_end(va);
 
 	return ret;
