@@ -18,7 +18,7 @@ struct gear_dl_find_object {
     void *sframe;
     unsigned long long reserved[6];
 };
-struct search { uintptr_t address; struct gear_dl_find_object *out; int found; };
+struct search { uintptr_t address; struct gear_dl_find_object *out; int found; int index; };
 static int find(struct dl_phdr_info *info, size_t size, void *opaque)
 {
     (void)size;
@@ -37,9 +37,14 @@ static int find(struct dl_phdr_info *info, size_t size, void *opaque)
         }
         if (p->p_type == PT_GNU_EH_FRAME) eh = (void *)begin;
     }
+    int main_program = s->index++ == 0;
     if (!contains) return 0;
-    void *handle = dlopen(info->dlpi_name && *info->dlpi_name ? info->dlpi_name : NULL,
-                          RTLD_NOW | RTLD_NOLOAD);
+    /* musl reports the main program first, named by its path (glibc: ""); a NOLOAD
+     * dlopen of that path does not find the already-mapped executable, so unwinding
+     * through the executable (C++/Kotlin exceptions) found no FDE. Use the
+     * program handle for it. */
+    void *handle = main_program ? dlopen(NULL, RTLD_NOW)
+        : dlopen(info->dlpi_name && *info->dlpi_name ? info->dlpi_name : NULL, RTLD_NOW | RTLD_NOLOAD);
     struct link_map *map = NULL;
     if (!handle || dlinfo(handle, RTLD_DI_LINKMAP, &map)) {
         if (handle) dlclose(handle);
@@ -53,7 +58,7 @@ static int find(struct dl_phdr_info *info, size_t size, void *opaque)
 }
 int _dl_find_object(void *address, struct gear_dl_find_object *out)
 {
-    struct search s = {(uintptr_t)address, out, 0};
+    struct search s = {(uintptr_t)address, out, 0, 0};
     dl_iterate_phdr(find, &s);
     return s.found ? 0 : -1;
 }
